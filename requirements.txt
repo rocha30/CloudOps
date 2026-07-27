@@ -1,0 +1,3 @@
+# Generic libraries only — no MCP SDKs (protocol is implemented manually per project requirements).
+httpx>=0.27
+python-dotenv>=1.0
