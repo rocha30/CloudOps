@@ -18,7 +18,10 @@ import httpx
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-opus-5"
+# Cheaper model by default for development/testing (keeps the $5 free-tier
+# budget from burning fast); override with ANTHROPIC_MODEL in .env for a
+# stronger model, without touching code.
+DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_MAX_TOKENS = 1024
 
 
@@ -36,7 +39,7 @@ class AnthropicClient:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = DEFAULT_MODEL,
+        model: str | None = None,
         timeout: float = 30.0,
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -45,7 +48,7 @@ class AnthropicClient:
                 "Missing Anthropic API key. Set ANTHROPIC_API_KEY in your "
                 "environment (see .env.example) or pass api_key explicitly."
             )
-        self.model = model
+        self.model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
         self._http = httpx.Client(timeout=timeout)
 
     def _headers(self) -> dict:

@@ -53,6 +53,8 @@ pip install -r requirements.txt
 
 cp .env.example .env
 # then edit .env and set your ANTHROPIC_API_KEY
+# optionally set ANTHROPIC_MODEL to override the default (claude-haiku-4-5-20251001,
+# chosen to conserve the $5 free-tier API budget during development)
 ```
 
 ## Usage
