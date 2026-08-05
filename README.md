@@ -6,7 +6,13 @@ Built for **CC3067 Redes** (Universidad del Valle de Guatemala) — Project 1: *
 
 ## Status
 
-🚧 Work in progress — this is the initial project scaffold (repo structure, dependencies, environment setup). No functionality has been implemented yet.
+🚧 Work in progress. Implemented so far (Part 1, functionalities 1-3):
+
+- Connection to Claude's API (manual HTTP client, no SDK).
+- Session context: the console chat loop keeps and resends full conversation history.
+- MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` command to display it — not populated yet, since no MCP server is wired in until the next commits.
+
+Not implemented yet: any MCP server (official Filesystem/Git, or the custom CloudOps server).
 
 See [`PlanProyecto.md`](./PlanProyecto.md) for the full development plan (in Spanish) and [`Proyecto1mcp.md`](./Proyecto1mcp.md) for the original assignment spec.
 
@@ -59,7 +65,16 @@ cp .env.example .env
 
 ## Usage
 
-Not yet implemented — instructions will be added here once the chat loop (commit #3 in the plan) is functional.
+```bash
+python -m chatbot.main
+```
+
+Starts a console chat session with Claude. The full conversation history is kept and resent on every turn, so follow-up questions ("when was he born?" after "who was Alan Turing?") work as expected.
+
+In-chat commands:
+
+- `exit`, `quit`, or `:q` — end the session.
+- `/log` — show the most recent logged MCP interactions (empty for now — populated once MCP servers are connected in later commits).
 
 ## Implementation constraints
 
