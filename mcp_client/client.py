@@ -1,9 +1,9 @@
-"""MCP protocol layer: the `initialize` handshake (commit #6 scope).
+"""MCP protocol layer: handshake (commit #6) + tool discovery (commit #7).
 
-Sits on top of `StdioTransport` (commit #5, pure framing) and implements the
-first piece of actual MCP protocol semantics: the client/server capability
-handshake every MCP session must perform before any other request
-(`tools/list`, `tools/call`, ...) is allowed.
+Sits on top of `StdioTransport` (commit #5, pure framing) and implements MCP
+protocol semantics: the client/server capability handshake every MCP session
+must perform before any other request, and `tools/list` for discovering what
+a server offers. `tools/call` (actually invoking a tool) lands in commit #8.
 
 Per the MCP specification, the handshake is:
   1. Client sends an `initialize` **request** (has an `id`, expects a response)
@@ -12,7 +12,7 @@ Per the MCP specification, the handshake is:
      `serverInfo`.
   3. Client sends an `initialized` **notification** (no `id`, no response
      expected) confirming the handshake is complete — only after this may
-     the client send any other request.
+     the client send any other request, including `tools/list`.
 """
 
 from __future__ import annotations
@@ -33,9 +33,9 @@ class MCPProtocolError(RuntimeError):
 
 
 class MCPClient:
-    """One MCP session over stdio with a single server: handshake + request id
-    bookkeeping. Tool discovery/invocation (`tools/list`, `tools/call`) are
-    added in the following commits.
+    """One MCP session over stdio with a single server: handshake, request id
+    bookkeeping, and tool discovery. Tool invocation (`tools/call`) is added
+    in commit #8.
     """
 
     def __init__(self, command: list[str], server_name: str):
@@ -103,6 +103,29 @@ class MCPClient:
     @property
     def is_initialized(self) -> bool:
         return self._initialized
+
+    def list_tools(self) -> list[dict[str, Any]]:
+        """Discover the tools a server offers via `tools/list`.
+
+        Returns each tool's raw definition (`name`, `description`,
+        `inputSchema`). `tools/list` is paginated per the MCP spec — a
+        response may include a `nextCursor`, in which case the client must
+        keep requesting with that cursor until the server omits it.
+        """
+        if not self._initialized:
+            raise MCPProtocolError("cannot list tools before the initialize handshake completes")
+
+        tools: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            result = self._request("tools/list", params)
+            tools.extend(result.get("tools", []))
+            cursor = result.get("nextCursor")
+            if not cursor:
+                break
+
+        return tools
 
     def close(self) -> None:
         self.transport.close()
