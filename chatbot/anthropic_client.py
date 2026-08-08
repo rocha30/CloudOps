@@ -63,6 +63,7 @@ class AnthropicClient:
         messages: list[dict],
         system: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        tools: list[dict] | None = None,
     ) -> dict:
         """Send a raw Messages API request and return the parsed JSON response."""
         body = {
@@ -72,6 +73,8 @@ class AnthropicClient:
         }
         if system:
             body["system"] = system
+        if tools:
+            body["tools"] = tools
 
         try:
             response = self._http.post(

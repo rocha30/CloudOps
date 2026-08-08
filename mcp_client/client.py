@@ -1,9 +1,14 @@
-"""MCP protocol layer: handshake (commit #6) + tool discovery (commit #7).
+"""MCP protocol layer: handshake (#6), tool discovery (#7), tool calls (#8).
 
 Sits on top of `StdioTransport` (commit #5, pure framing) and implements MCP
 protocol semantics: the client/server capability handshake every MCP session
-must perform before any other request, and `tools/list` for discovering what
-a server offers. `tools/call` (actually invoking a tool) lands in commit #8.
+must perform before any other request, `tools/list` for discovering what a
+server offers, and `tools/call` for actually invoking one.
+
+Every request/response pair is transparently logged via
+`mcp_client.interaction_logger.with_logging` (commit #4) when a logger is
+passed in — no special-casing per method, it just wraps the transport's
+`send_request` once in `__init__`.
 
 Per the MCP specification, the handshake is:
   1. Client sends an `initialize` **request** (has an `id`, expects a response)
@@ -20,6 +25,7 @@ from __future__ import annotations
 from itertools import count
 from typing import Any
 
+from mcp_client.interaction_logger import InteractionLogger, with_logging
 from mcp_client.stdio_transport import StdioTransport, StdioTransportError
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
@@ -34,17 +40,26 @@ class MCPProtocolError(RuntimeError):
 
 class MCPClient:
     """One MCP session over stdio with a single server: handshake, request id
-    bookkeeping, and tool discovery. Tool invocation (`tools/call`) is added
-    in commit #8.
+    bookkeeping, tool discovery, and tool invocation.
     """
 
-    def __init__(self, command: list[str], server_name: str):
+    def __init__(
+        self,
+        command: list[str],
+        server_name: str,
+        logger: InteractionLogger | None = None,
+    ):
         self.server_name = server_name
         self.transport = StdioTransport(command)
         self._id_counter = count(1)
         self.server_info: dict[str, Any] | None = None
         self.server_capabilities: dict[str, Any] | None = None
         self._initialized = False
+
+        # Every request/response this client sends goes through the
+        # logging wrapper from commit #4, if a logger was supplied.
+        send = self.transport.send_request
+        self._send = with_logging(server_name, logger, send) if logger else send
 
     def _next_id(self) -> int:
         return next(self._id_counter)
@@ -57,7 +72,7 @@ class MCPClient:
         if params is not None:
             message["params"] = params
 
-        response = self.transport.send_request(message)
+        response = self._send(message)
 
         if response.get("id") != request_id:
             raise MCPProtocolError(
@@ -126,6 +141,18 @@ class MCPClient:
                 break
 
         return tools
+
+    def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Invoke a tool via `tools/call`. Returns the raw MCP result:
+        `{"content": [...], "isError": bool}` — a tool-level failure (e.g. a
+        bad path) comes back as `isError: True` inside a normal result, not
+        as a JSON-RPC `error`; only protocol-level failures raise
+        `MCPProtocolError`.
+        """
+        if not self._initialized:
+            raise MCPProtocolError("cannot call a tool before the initialize handshake completes")
+
+        return self._request("tools/call", {"name": name, "arguments": arguments or {}})
 
     def close(self) -> None:
         self.transport.close()

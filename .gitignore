@@ -20,6 +20,12 @@ data/*.sqlite3
 logs/*.log
 logs/*.jsonl
 
+# Sandbox root the chatbot points the Filesystem/Git MCP servers at — every
+# file the LLM reads/writes/commits during a demo lands here, not in the
+# actual project tree.
+workspace/*
+!workspace/.gitkeep
+
 # Keep folder structure tracked even though generated contents are ignored
 !data/.gitkeep
 !logs/.gitkeep
