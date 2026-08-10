@@ -2,16 +2,22 @@
 
 Covers functionality 1 (connection to an LLM at the API level), functionality
 2 (session context via ChatSession), functionality 3 (MCP interactions are
-logged — the `/log` command shows them), and the first half of functionality
-4: the official **Filesystem MCP server** is connected on startup and its
-tools are made available to Claude through the ChatSession tool-use loop
-(commit #8). The Git MCP server and the custom CloudOps server land in later
-commits.
+logged — the `/log` command shows them), and functionality 4: the official
+**Filesystem** (commit #8) and **Git** (commit #9) MCP servers are connected
+on startup and their tools are made available to Claude through the
+ChatSession tool-use loop. The custom CloudOps server lands in commit #12+.
+
+Note on the Git server: the current official `mcp-server-git` has no
+`git_init` tool — every one of its tools requires an existing repo
+(`repo_path`). So "creating the repository" can't be a step the LLM performs
+through a tool call; `git init` runs once here as setup, before the server
+is even connected, not as part of the chat demo.
 
 Usage:
     python -m chatbot.main
 """
 
+import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,9 +31,9 @@ from mcp_client.stdio_transport import StdioTransportError
 EXIT_COMMANDS = {"exit", "quit", ":q"}
 LOG_COMMAND = "/log"
 
-# Sandbox root for the Filesystem (and later Git) MCP servers — every file
-# the LLM reads/writes/commits during a demo lands here, never in the
-# project's own tree. See .gitignore: workspace/* is ignored.
+# Sandbox root for the Filesystem and Git MCP servers — every file the LLM
+# reads/writes/commits during a demo lands here, never in the project's own
+# tree. See .gitignore: workspace/* is ignored.
 WORKSPACE_DIR = Path(__file__).resolve().parent.parent / "workspace"
 
 
@@ -51,6 +57,34 @@ def connect_filesystem_server(logger: InteractionLogger) -> MCPClient | None:
         return None
 
 
+def connect_git_server(logger: InteractionLogger) -> MCPClient | None:
+    """Ensure WORKSPACE_DIR is a git repo (one-time setup — see module
+    docstring), then launch and handshake with the official Git MCP server.
+    Best-effort, same reasoning as connect_filesystem_server.
+    """
+    WORKSPACE_DIR.mkdir(exist_ok=True)
+    if not (WORKSPACE_DIR / ".git").exists():
+        try:
+            subprocess.run(
+                ["git", "init"], cwd=WORKSPACE_DIR, check=True, capture_output=True, text=True
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            print(f"Warning: could not initialize the workspace git repo: {exc}")
+            return None
+
+    try:
+        mcp_client = MCPClient(
+            ["mcp-server-git", "--repository", str(WORKSPACE_DIR)],
+            server_name="git",
+            logger=logger,
+        )
+        mcp_client.initialize()
+        return mcp_client
+    except (StdioTransportError, MCPProtocolError) as exc:
+        print(f"Warning: could not connect to the Git MCP server: {exc}")
+        return None
+
+
 def main() -> None:
     load_dotenv()
 
@@ -67,6 +101,11 @@ def main() -> None:
     if filesystem_client is not None:
         mcp_clients["filesystem"] = filesystem_client
         print(f"Connected: Filesystem MCP server (sandbox: {WORKSPACE_DIR})")
+
+    git_client = connect_git_server(interaction_logger)
+    if git_client is not None:
+        mcp_clients["git"] = git_client
+        print(f"Connected: Git MCP server (repo: {WORKSPACE_DIR})")
 
     session = ChatSession(client, mcp_clients=mcp_clients)
     print("CloudOps chatbot — type 'exit' to quit, '/log' to show MCP interaction log.\n")
