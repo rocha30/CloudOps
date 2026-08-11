@@ -6,13 +6,14 @@ Built for **CC3067 Redes** (Universidad del Valle de Guatemala) — Project 1: *
 
 ## Status
 
-🚧 Work in progress. Implemented so far (Part 1, functionalities 1-3):
+🚧 Work in progress. Implemented so far (Part 1, functionalities 1-4):
 
 - Connection to Claude's API (manual HTTP client, no SDK).
 - Session context: the console chat loop keeps and resends full conversation history.
-- MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` command to display it — not populated yet, since no MCP server is wired in until the next commits.
+- MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` command to display it — populated automatically as soon as any MCP server is connected.
+- The official **Filesystem** and **Git** MCP servers are connected on startup (sandboxed to `workspace/`) and their tools are available to Claude through an agentic tool-use loop. See [`docs/demo-filesystem-git.md`](./docs/demo-filesystem-git.md) for the end-to-end demo (create README → git add → git commit, driven entirely through chat).
 
-Not implemented yet: any MCP server (official Filesystem/Git, or the custom CloudOps server).
+Not implemented yet: the custom CloudOps MCP server (functionality 5).
 
 See [`PlanProyecto.md`](./PlanProyecto.md) for the full development plan (in Spanish) and [`Proyecto1mcp.md`](./Proyecto1mcp.md) for the original assignment spec.
 
@@ -21,7 +22,7 @@ See [`PlanProyecto.md`](./PlanProyecto.md) for the full development plan (in Spa
 1. Connection to an LLM through Anthropic's API.
 2. Session context (multi-turn conversation memory).
 3. Logging of all MCP request/response interactions.
-4. Integration with the official **Filesystem** and **Git** MCP servers (local, via `npx`).
+4. Integration with the official **Filesystem** (via `npx`) and **Git** (via the `mcp-server-git` pip package) MCP servers, local for now.
 5. A custom local MCP server — **CloudOps**: a simulated cloud infrastructure ops tool (list servers, check status, read logs, restart services, scale instances).
 
 A remote deployment of the CloudOps server and a Wireshark-based protocol analysis are planned for Part 2 of the project (not covered by this repo yet).
@@ -50,7 +51,7 @@ logs/               # MCP interaction logs (generated, gitignored)
 
 ## Setup
 
-Requires Python 3.10+ and Node.js (for the official Filesystem/Git MCP servers, run via `npx`).
+Requires Python 3.10+ and Node.js (for the official Filesystem MCP server, run via `npx`). The Git MCP server (`mcp-server-git`) installs from `requirements.txt` — no extra setup needed.
 
 ```bash
 python3 -m venv .venv
