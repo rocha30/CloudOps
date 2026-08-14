@@ -184,12 +184,46 @@ def tool_get_server_status(arguments: dict[str, Any]) -> dict[str, Any]:
     return _text_result(_row_to_server_dict(row))
 
 
+VALID_LOG_LEVELS = ("error", "warn", "info")
+
+
+def tool_check_logs(arguments: dict[str, Any]) -> dict[str, Any]:
+    server_id = arguments.get("server_id")
+    if not server_id:
+        return _error_result("Missing required argument: server_id")
+
+    conn = _get_conn()
+    if conn.execute("SELECT 1 FROM servers WHERE id = ?", (server_id,)).fetchone() is None:
+        return _error_result(f"No such server: {server_id}")
+
+    level = arguments.get("level")
+    if level is not None and level not in VALID_LOG_LEVELS:
+        return _error_result(f"Invalid level: {level!r} (must be one of {', '.join(VALID_LOG_LEVELS)})")
+
+    limit = arguments.get("limit", 20)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return _error_result("'limit' must be a positive integer")
+
+    query = "SELECT timestamp, level, message FROM log_entries WHERE server_id = ?"
+    query_args: list[Any] = [server_id]
+    if level:
+        query += " AND level = ?"
+        query_args.append(level)
+    query += " ORDER BY timestamp DESC LIMIT ?"
+    query_args.append(limit)
+
+    rows = conn.execute(query, query_args).fetchall()
+    logs = [{"timestamp": r["timestamp"], "level": r["level"], "message": r["message"]} for r in rows]
+    return _text_result(logs)
+
+
 # Tools implemented so far. A tool present in TOOLS (tools/list) but absent
-# here is a real planned tool that just isn't built yet (commit #14/#15) —
+# here is a real planned tool that just isn't built yet (commit #15) —
 # distinguished below from a tool name that doesn't exist at all.
 TOOL_HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "list_servers": tool_list_servers,
     "get_server_status": tool_get_server_status,
+    "check_logs": tool_check_logs,
 }
 
 _PLANNED_TOOL_NAMES = {tool["name"] for tool in TOOLS}
