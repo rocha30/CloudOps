@@ -2,10 +2,12 @@
 
 Covers functionality 1 (connection to an LLM at the API level), functionality
 2 (session context via ChatSession), functionality 3 (MCP interactions are
-logged — the `/log` command shows them), and functionality 4: the official
-**Filesystem** (commit #8) and **Git** (commit #9) MCP servers are connected
-on startup and their tools are made available to Claude through the
-ChatSession tool-use loop. The custom CloudOps server lands in commit #12+.
+logged — the `/log` command shows them), functionality 4 (the official
+**Filesystem** and **Git** MCP servers, commits #8-#9), and functionality 5:
+the custom **CloudOps** MCP server (commit #16) — same `MCPClient` reused
+as-is, launched as a Python subprocess instead of `npx`/`mcp-server-git`.
+All three servers' tools are available to Claude through the same
+ChatSession tool-use loop with no server-specific code in that loop.
 
 Note on the Git server: the current official `mcp-server-git` has no
 `git_init` tool — every one of its tools requires an existing repo
@@ -18,6 +20,7 @@ Usage:
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,6 +30,8 @@ from chatbot.session import ChatSession
 from mcp_client.client import MCPClient, MCPProtocolError
 from mcp_client.interaction_logger import InteractionLogger
 from mcp_client.stdio_transport import StdioTransportError
+from servers.cloudops.db import DB_PATH as CLOUDOPS_DB_PATH
+from servers.cloudops.seed import seed as seed_cloudops_db
 
 EXIT_COMMANDS = {"exit", "quit", ":q"}
 LOG_COMMAND = "/log"
@@ -85,6 +90,28 @@ def connect_git_server(logger: InteractionLogger) -> MCPClient | None:
         return None
 
 
+def connect_cloudops_server(logger: InteractionLogger) -> MCPClient | None:
+    """Seed the CloudOps database on first run, then launch and handshake
+    with our own MCP server — same MCPClient, same logging wrapper, same
+    tool-use loop as the two official servers above; only the launch
+    command differs (our own Python module instead of npx/mcp-server-git).
+    """
+    if not CLOUDOPS_DB_PATH.exists():
+        seed_cloudops_db()
+
+    try:
+        mcp_client = MCPClient(
+            [sys.executable, "-m", "servers.cloudops.server"],
+            server_name="cloudops",
+            logger=logger,
+        )
+        mcp_client.initialize()
+        return mcp_client
+    except (StdioTransportError, MCPProtocolError) as exc:
+        print(f"Warning: could not connect to the CloudOps MCP server: {exc}")
+        return None
+
+
 def main() -> None:
     load_dotenv()
 
@@ -106,6 +133,11 @@ def main() -> None:
     if git_client is not None:
         mcp_clients["git"] = git_client
         print(f"Connected: Git MCP server (repo: {WORKSPACE_DIR})")
+
+    cloudops_client = connect_cloudops_server(interaction_logger)
+    if cloudops_client is not None:
+        mcp_clients["cloudops"] = cloudops_client
+        print(f"Connected: CloudOps MCP server (db: {CLOUDOPS_DB_PATH})")
 
     session = ChatSession(client, mcp_clients=mcp_clients)
     print("CloudOps chatbot — type 'exit' to quit, '/log' to show MCP interaction log.\n")
