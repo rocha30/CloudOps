@@ -1,11 +1,9 @@
-"""CloudOps MCP server: scaffold + initialize/tools/list (#12), first two
-read tools (#13).
+"""CloudOps MCP server: all 5 planned tools implemented (#12-#15).
 
 Simulated cloud infrastructure ops server — see `PlanProyecto.md` §2 for the
-use case and §2.2 for the tool specs this file implements the schemas for.
-`list_servers` and `get_server_status` are implemented in this commit;
-`check_logs` (#14) and `restart_service`/`scale_instance` (#15) still return
-a clear "not yet implemented" tool error if called.
+use case and §2.2 for the tool specs. Read tools: `list_servers`,
+`get_server_status` (#13), `check_logs` (#14). Write tools (mutate state,
+with validation): `restart_service`, `scale_instance` (#15).
 
 Runs as a subprocess over stdio, launched by the chatbot starting commit
 #16 — same pattern as the official Filesystem/Git servers, just on the
@@ -22,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from servers.cloudops.db import get_connection, init_db
@@ -217,13 +216,88 @@ def tool_check_logs(arguments: dict[str, Any]) -> dict[str, Any]:
     return _text_result(logs)
 
 
-# Tools implemented so far. A tool present in TOOLS (tools/list) but absent
-# here is a real planned tool that just isn't built yet (commit #15) —
-# distinguished below from a tool name that doesn't exist at all.
+def tool_restart_service(arguments: dict[str, Any]) -> dict[str, Any]:
+    server_id = arguments.get("server_id")
+    service_name = arguments.get("service_name")
+    if not server_id:
+        return _error_result("Missing required argument: server_id")
+    if not service_name:
+        return _error_result("Missing required argument: service_name")
+
+    conn = _get_conn()
+    if conn.execute("SELECT 1 FROM servers WHERE id = ?", (server_id,)).fetchone() is None:
+        return _error_result(f"No such server: {server_id}")
+
+    service_row = conn.execute(
+        "SELECT id FROM services WHERE server_id = ? AND name = ?", (server_id, service_name)
+    ).fetchone()
+    if service_row is None:
+        return _error_result(f"No such service '{service_name}' on server {server_id}")
+
+    last_restart = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE services SET status = 'running', last_restart = ? WHERE id = ?",
+        (last_restart, service_row["id"]),
+    )
+    conn.commit()
+
+    return _text_result(
+        {
+            "server_id": server_id,
+            "service_name": service_name,
+            "status": "running",
+            "last_restart": last_restart,
+        }
+    )
+
+
+# Instance count ceiling for scale_instance — the "maximum configurado" the
+# plan calls for. Simulated infra, so a plain module constant is enough;
+# not exposed as a tool parameter since it's an operational limit, not a
+# per-call choice.
+MAX_INSTANCE_COUNT = 10
+
+
+def tool_scale_instance(arguments: dict[str, Any]) -> dict[str, Any]:
+    server_id = arguments.get("server_id")
+    if not server_id:
+        return _error_result("Missing required argument: server_id")
+
+    delta = arguments.get("delta")
+    if not isinstance(delta, int) or isinstance(delta, bool):
+        return _error_result("'delta' must be an integer")
+
+    conn = _get_conn()
+    row = conn.execute("SELECT instance_count FROM servers WHERE id = ?", (server_id,)).fetchone()
+    if row is None:
+        return _error_result(f"No such server: {server_id}")
+
+    current = row["instance_count"]
+    new_count = current + delta
+    if new_count < 0:
+        return _error_result(
+            f"Cannot scale server {server_id}: instance_count would go below 0 "
+            f"(current {current}, delta {delta:+d})"
+        )
+    if new_count > MAX_INSTANCE_COUNT:
+        return _error_result(
+            f"Cannot scale server {server_id}: instance_count would exceed the maximum "
+            f"of {MAX_INSTANCE_COUNT} (current {current}, delta {delta:+d})"
+        )
+
+    conn.execute("UPDATE servers SET instance_count = ? WHERE id = ?", (new_count, server_id))
+    conn.commit()
+
+    return _text_result({"server_id": server_id, "instance_count": new_count})
+
+
+# Tools implemented so far — all 5 planned tools, as of this commit.
 TOOL_HANDLERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "list_servers": tool_list_servers,
     "get_server_status": tool_get_server_status,
     "check_logs": tool_check_logs,
+    "restart_service": tool_restart_service,
+    "scale_instance": tool_scale_instance,
 }
 
 _PLANNED_TOOL_NAMES = {tool["name"] for tool in TOOLS}
