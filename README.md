@@ -6,14 +6,15 @@ Built for **CC3067 Redes** (Universidad del Valle de Guatemala) — Project 1: *
 
 ## Status
 
-🚧 Work in progress. Implemented so far (Part 1, functionalities 1-4):
+🚧 Work in progress, but **all 5 functionalities of Part 1 are implemented**:
 
 - Connection to Claude's API (manual HTTP client, no SDK).
 - Session context: the console chat loop keeps and resends full conversation history.
 - MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` command to display it — populated automatically as soon as any MCP server is connected.
 - The official **Filesystem** and **Git** MCP servers are connected on startup (sandboxed to `workspace/`) and their tools are available to Claude through an agentic tool-use loop. See [`docs/demo-filesystem-git.md`](./docs/demo-filesystem-git.md) for the end-to-end demo (create README → git add → git commit, driven entirely through chat).
+- The custom **CloudOps** MCP server (simulated cloud infra ops: list servers, check status, read logs, restart services, scale instances) is connected the same way, through the same client. See [`docs/cloudops-server-spec.md`](./docs/cloudops-server-spec.md) for the full tool specification, request/response examples, and usage.
 
-Not implemented yet: the custom CloudOps MCP server (functionality 5).
+Remaining for Part 1: a final end-to-end CloudOps demo + closing polish (commit #18). Part 2 (remote deployment, Wireshark analysis) isn't covered by this repo yet.
 
 See [`PlanProyecto.md`](./PlanProyecto.md) for the full development plan (in Spanish) and [`Proyecto1mcp.md`](./Proyecto1mcp.md) for the original assignment spec.
 
@@ -42,11 +43,15 @@ The MCP client is built once and is server-agnostic — the same client code tal
 ## Project structure
 
 ```
-chatbot/          # Host: chat loop, conversation history, Anthropic API client
-mcp_client/        # Generic MCP client: JSON-RPC transport/protocol logic + logging wrapper
-servers/cloudops/  # Custom MCP server (CloudOps): tools, SQLite-backed data model, seed script
-data/               # SQLite database (generated, gitignored)
-logs/               # MCP interaction logs (generated, gitignored)
+chatbot/            # Host: chat loop, conversation history, Anthropic API client
+mcp_client/          # Generic MCP client: JSON-RPC transport/protocol logic + logging wrapper
+servers/             # MCP server(s) we built ourselves
+  mcp_stdio_server.py  #   Generic server-side JSON-RPC-over-stdio loop
+  cloudops/            #   CloudOps server: tools, SQLite-backed data model, seed script
+docs/                # Specs and demo walkthroughs (see docs/*.md)
+data/                # SQLite database (generated, gitignored)
+logs/                # MCP interaction logs (generated, gitignored)
+workspace/           # Sandbox root for the Filesystem/Git MCP servers (generated, gitignored)
 ```
 
 ## Setup
@@ -75,8 +80,8 @@ Starts a console chat session with Claude. The full conversation history is kept
 In-chat commands:
 
 - `exit`, `quit`, or `:q` — end the session.
-- `/log` — show the most recent logged MCP interactions (empty for now — populated once MCP servers are connected in later commits).
+- `/log` — show the most recent logged MCP interactions across all connected servers (Filesystem, Git, CloudOps).
 
 ## Implementation constraints
 
-Per the assignment spec, the MCP protocol (JSON-RPC 2.0 framing, `initialize`/`initialized`, `tools/list`, `tools/call`) is implemented **manually**, without using any MCP SDK (e.g. the `mcp` Python package, `FastMCP`). Only generic libraries are used: `httpx`, `sqlite3`, `subprocess`, `asyncio`.
+Per the assignment spec, the MCP protocol (JSON-RPC 2.0 framing, `initialize`/`initialized`, `tools/list`, `tools/call`) is implemented **manually, on both ends** — a generic client (`mcp_client/`) and our own server's stdio loop (`servers/mcp_stdio_server.py`) — without using any MCP SDK (e.g. the `mcp` Python package, `FastMCP`). Only generic libraries are used: `httpx`, `sqlite3`, `subprocess`. `asyncio` was considered for the transport but deliberately not used — see the design note in `mcp_client/stdio_transport.py`.
