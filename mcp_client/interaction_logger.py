@@ -62,28 +62,65 @@ class InteractionLogger:
         with self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    def read_entries(self, limit: int | None = None) -> list[dict[str, Any]]:
-        """Read logged interactions in chronological order (oldest first)."""
+    def read_entries(
+        self, limit: int | None = None, server: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Read logged interactions in chronological order (oldest first).
+
+        `server`, if given, filters to that server *before* applying
+        `limit` — so `limit` means "last N entries for this server", not
+        "last N entries overall, then see if any match".
+        """
         if not self.log_path.exists():
             return []
         with self.log_path.open("r", encoding="utf-8") as f:
             entries = [json.loads(line) for line in f if line.strip()]
+        if server:
+            entries = [e for e in entries if e["server"] == server]
         return entries[-limit:] if limit else entries
 
     @staticmethod
     def format_entry(entry: dict[str, Any]) -> str:
-        """Render one log entry as a single human-readable line."""
+        """Render one log entry as a single human-readable line.
+
+        Requests are labeled with the method, and — for `tools/call` — the
+        actual tool name, since "-> tools/call" alone doesn't say which
+        tool. Responses show the JSON-RPC error message when present, or
+        the tool-level `isError` flag for a `tools/call` result, instead of
+        the uninformative generic "response" every reply used to render as.
+        """
         arrow = "->" if entry["direction"] == "request" else "<-"
         message = entry["message"]
-        label = message.get("method") or message.get("error", {}).get("message") or "response"
         timing = f" ({entry['elapsed_ms']:.1f} ms)" if entry.get("elapsed_ms") else ""
+
+        if entry["direction"] == "request":
+            method = message.get("method", "?")
+            if method == "tools/call":
+                tool_name = message.get("params", {}).get("name", "?")
+                label = f"tools/call({tool_name})"
+            else:
+                label = method
+        else:
+            if "error" in message:
+                label = f"error: {message['error'].get('message', '?')}"
+            else:
+                result = message.get("result")
+                if isinstance(result, dict) and "isError" in result:
+                    label = f"result (isError={result['isError']})"
+                else:
+                    label = "result"
+
         return f"[{entry['timestamp']}] {entry['server']} {arrow} {label}{timing}"
 
-    def print_recent(self, limit: int = 20) -> None:
-        """Print the last N logged interactions — the 'mostrar' half of functionality 3."""
-        entries = self.read_entries(limit=limit)
+    def print_recent(self, limit: int = 20, server: str | None = None) -> None:
+        """Print the last N logged interactions — the 'mostrar' half of functionality 3.
+
+        Pass `server` (e.g. "cloudops") to see only that server's entries.
+        """
+        entries = self.read_entries(limit=limit, server=server)
         if not entries:
-            print("(no MCP interactions logged yet)")
+            scope = f" for server '{server}'" if server else ""
+            print(f"(no MCP interactions logged yet{scope})")
             return
         for entry in entries:
             print(self.format_entry(entry))

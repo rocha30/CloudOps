@@ -6,15 +6,15 @@ Built for **CC3067 Redes** (Universidad del Valle de Guatemala) — Project 1: *
 
 ## Status
 
-🚧 Work in progress, but **all 5 functionalities of Part 1 are implemented**:
+✅ **Part 1 complete** — all 5 required functionalities implemented and demoed end-to-end:
 
 - Connection to Claude's API (manual HTTP client, no SDK).
 - Session context: the console chat loop keeps and resends full conversation history.
-- MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` command to display it — populated automatically as soon as any MCP server is connected.
-- The official **Filesystem** and **Git** MCP servers are connected on startup (sandboxed to `workspace/`) and their tools are available to Claude through an agentic tool-use loop. See [`docs/demo-filesystem-git.md`](./docs/demo-filesystem-git.md) for the end-to-end demo (create README → git add → git commit, driven entirely through chat).
-- The custom **CloudOps** MCP server (simulated cloud infra ops: list servers, check status, read logs, restart services, scale instances) is connected the same way, through the same client. See [`docs/cloudops-server-spec.md`](./docs/cloudops-server-spec.md) for the full tool specification, request/response examples, and usage.
+- MCP interaction logging layer (`InteractionLogger` + `with_logging` wrapper) and an in-chat `/log` (or `/log <server>`) command to display it, with per-tool/per-outcome detail — populated automatically as soon as any MCP server is connected.
+- The official **Filesystem** and **Git** MCP servers, connected on startup (sandboxed to `workspace/`). See [`docs/demo-filesystem-git.md`](./docs/demo-filesystem-git.md) for the end-to-end demo (create README → git add → git commit, driven entirely through chat).
+- The custom **CloudOps** MCP server (simulated cloud infra ops), connected the same way, through the same client. See [`docs/cloudops-server-spec.md`](./docs/cloudops-server-spec.md) for the full tool specification and [`docs/demo-cloudops.md`](./docs/demo-cloudops.md) for an end-to-end demo — including Claude recovering on its own from two tool-level errors mid-conversation.
 
-Remaining for Part 1: a final end-to-end CloudOps demo + closing polish (commit #18). Part 2 (remote deployment, Wireshark analysis) isn't covered by this repo yet.
+Part 2 (remote deployment, Wireshark analysis) isn't covered by this repo yet.
 
 See [`PlanProyecto.md`](./PlanProyecto.md) for the full development plan (in Spanish) and [`Proyecto1mcp.md`](./Proyecto1mcp.md) for the original assignment spec.
 
@@ -80,7 +80,7 @@ Starts a console chat session with Claude. The full conversation history is kept
 In-chat commands:
 
 - `exit`, `quit`, or `:q` — end the session.
-- `/log` — show the most recent logged MCP interactions across all connected servers (Filesystem, Git, CloudOps).
+- `/log` — show the most recent logged MCP interactions across all connected servers (Filesystem, Git, CloudOps). `/log <server>` (e.g. `/log cloudops`) filters to just one.
 
 ## Implementation constraints
 

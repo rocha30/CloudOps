@@ -140,7 +140,7 @@ def main() -> None:
         print(f"Connected: CloudOps MCP server (db: {CLOUDOPS_DB_PATH})")
 
     session = ChatSession(client, mcp_clients=mcp_clients)
-    print("CloudOps chatbot — type 'exit' to quit, '/log' to show MCP interaction log.\n")
+    print("CloudOps chatbot — type 'exit' to quit, '/log' (or '/log <server>') to show MCP interaction log.\n")
 
     try:
         while True:
@@ -153,8 +153,11 @@ def main() -> None:
                 continue
             if user_text.lower() in EXIT_COMMANDS:
                 break
-            if user_text.lower() == LOG_COMMAND:
-                interaction_logger.print_recent()
+            if user_text.lower() == LOG_COMMAND or user_text.lower().startswith(LOG_COMMAND + " "):
+                # "/log" shows every server; "/log cloudops" filters to one.
+                parts = user_text.split(maxsplit=1)
+                server_filter = parts[1].strip() if len(parts) > 1 else None
+                interaction_logger.print_recent(server=server_filter)
                 continue
 
             try:
