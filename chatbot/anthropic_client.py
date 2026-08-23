@@ -40,6 +40,7 @@ class AnthropicClient:
         self,
         api_key: str | None = None,
         model: str | None = None,
+        workspace_id: str | None = None,
         timeout: float = 30.0,
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -49,14 +50,22 @@ class AnthropicClient:
                 "environment (see .env.example) or pass api_key explicitly."
             )
         self.model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+        # Only required for "identity-linked" API keys (orgs with multiple
+        # workspaces) — the API rejects those with a 400 unless this header
+        # is present. Plain workspace-less keys don't need it, so this stays
+        # optional and is simply omitted when unset.
+        self.workspace_id = workspace_id or os.environ.get("ANTHROPIC_WORKSPACE_ID")
         self._http = httpx.Client(timeout=timeout)
 
     def _headers(self) -> dict:
-        return {
+        headers = {
             "x-api-key": self.api_key,
             "anthropic-version": ANTHROPIC_VERSION,
             "content-type": "application/json",
         }
+        if self.workspace_id:
+            headers["anthropic-workspace-id"] = self.workspace_id
+        return headers
 
     def complete(
         self,
