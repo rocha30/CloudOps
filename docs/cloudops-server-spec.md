@@ -63,11 +63,18 @@ code.
 
 ## 3. Transport & protocol
 
-Same manual JSON-RPC 2.0 over stdio as every other server in this project —
-no MCP SDK. Server-side framing lives in `servers/mcp_stdio_server.py`
-(generic: read one newline-delimited JSON message per line, dispatch to a
-registered handler, write the response); `servers/cloudops/server.py`
-registers the actual handlers on top of it.
+Manual JSON-RPC 2.0, no MCP SDK, over two interchangeable transports — same
+handlers, same tools, same `tools/call` behavior either way:
+
+- **stdio (local)** — `servers/mcp_stdio_server.py`: read one
+  newline-delimited JSON message per line from stdin, dispatch to a
+  registered handler, write the response to stdout.
+- **HTTP (remote, Parte 2)** — `servers/cloudops/http_server.py`: one POST
+  per JSON-RPC message to `/mcp`; the response comes back as the HTTP body
+  instead of a stdout line. Both transports call the exact same
+  `MCPServer.handle_message` (dispatch, no I/O) defined once in
+  `servers/mcp_stdio_server.py` — `servers/cloudops/server.py`'s handlers
+  don't know or care which transport is in front of them.
 
 ```
 initialize()             — protocolVersion, capabilities, serverInfo
@@ -75,6 +82,27 @@ notifications/initialized — client confirms the handshake (no response)
 tools/list                — returns the 5 tools below, with full inputSchema
 tools/call                — invokes one tool by name + arguments
 ```
+
+### 3.1 Remote deployment (Render)
+
+The same server, deployed as a web service on [Render](https://render.com):
+
+- **Endpoint:** `POST https://<service>.onrender.com/mcp` — one JSON-RPC
+  message per request, JSON-RPC response as the body (or an empty `202` for
+  a notification). `GET /` answers `200` for health checks.
+- **Auth:** a shared secret header, `X-CloudOps-Token`, checked against the
+  `CLOUDOPS_TOKEN` env var set on Render — deliberately minimal, this is
+  simulated data behind a class demo, not a production secret.
+- **Client side:** `mcp_client/http_transport.py`'s `HttpTransport` (same
+  `send`/`send_request`/`close` interface as `StdioTransport`, built on
+  `httpx`). The chatbot picks it automatically when `CLOUDOPS_REMOTE_URL`
+  is set in `.env` — see `chatbot/main.py`'s `connect_cloudops_server`. No
+  other code changes between local and remote.
+- **State:** Render's filesystem is ephemeral per deploy, so
+  `servers/cloudops/http_server.py` re-seeds `data/cloudops.db` on every
+  boot (same idempotent `seed()` used locally).
+- **Wireshark analysis:** see `docs/wireshark-analysis.md` for the capture
+  of this exact HTTPS traffic, decrypted via `SSLKEYLOGFILE`.
 
 ## 4. Tools
 
@@ -246,6 +274,16 @@ python -m servers.cloudops.server  # blocks, reading JSON-RPC from stdin
 automatically on startup (`connect_cloudops_server`), auto-seeding the
 database on first run if it doesn't exist yet. No manual setup needed —
 just `python -m chatbot.main`.
+
+**Remote (Render), standalone:**
+```bash
+PORT=8000 CLOUDOPS_TOKEN=<secret> python -m servers.cloudops.http_server
+```
+On Render itself, `PORT` is injected automatically — set the start command
+to `python -m servers.cloudops.http_server` and `CLOUDOPS_TOKEN` as an
+env var. To point the chatbot at it instead of the local subprocess, set in
+`.env`: `CLOUDOPS_REMOTE_URL=https://<service>.onrender.com/mcp` and the
+matching `CLOUDOPS_TOKEN`.
 
 ## 6. Usage examples (via the chatbot)
 
