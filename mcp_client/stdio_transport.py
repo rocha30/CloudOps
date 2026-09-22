@@ -20,8 +20,10 @@ import subprocess
 import threading
 from typing import Any
 
+from mcp_client.errors import TransportError
 
-class StdioTransportError(RuntimeError):
+
+class StdioTransportError(TransportError):
     """Raised on subprocess failures, malformed frames, or a closed pipe."""
 
 

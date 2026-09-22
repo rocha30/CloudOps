@@ -1,9 +1,12 @@
 """MCP protocol layer: handshake (#6), tool discovery (#7), tool calls (#8).
 
-Sits on top of `StdioTransport` (commit #5, pure framing) and implements MCP
-protocol semantics: the client/server capability handshake every MCP session
-must perform before any other request, `tools/list` for discovering what a
-server offers, and `tools/call` for actually invoking one.
+Sits on top of a transport (`StdioTransport` for local servers, `HttpTransport`
+for the remote CloudOps server — Parte 2) and implements MCP protocol
+semantics: the client/server capability handshake every MCP session must
+perform before any other request, `tools/list` for discovering what a server
+offers, and `tools/call` for actually invoking one. `MCPClient` only relies on
+a transport's `send`/`send_request`/`close` — it never constructs one itself,
+so swapping stdio for HTTP needs no change here.
 
 Every request/response pair is transparently logged via
 `mcp_client.interaction_logger.with_logging` (commit #4) when a logger is
@@ -26,7 +29,6 @@ from itertools import count
 from typing import Any
 
 from mcp_client.interaction_logger import InteractionLogger, with_logging
-from mcp_client.stdio_transport import StdioTransport, StdioTransportError
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 CLIENT_NAME = "cloudops-chatbot"
@@ -45,12 +47,15 @@ class MCPClient:
 
     def __init__(
         self,
-        command: list[str],
+        transport: Any,
         server_name: str,
         logger: InteractionLogger | None = None,
     ):
+        """`transport` is any object exposing `send(message)`,
+        `send_request(message) -> response`, and `close()` — a
+        `StdioTransport` or an `HttpTransport`, constructed by the caller."""
         self.server_name = server_name
-        self.transport = StdioTransport(command)
+        self.transport = transport
         self._id_counter = count(1)
         self.server_info: dict[str, Any] | None = None
         self.server_capabilities: dict[str, Any] | None = None

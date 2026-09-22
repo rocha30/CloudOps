@@ -19,6 +19,7 @@ Usage:
     python -m chatbot.main
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -28,8 +29,10 @@ from dotenv import load_dotenv
 from chatbot.anthropic_client import AnthropicAPIError, AnthropicClient
 from chatbot.session import ChatSession
 from mcp_client.client import MCPClient, MCPProtocolError
+from mcp_client.errors import TransportError
+from mcp_client.http_transport import HttpTransport
 from mcp_client.interaction_logger import InteractionLogger
-from mcp_client.stdio_transport import StdioTransportError
+from mcp_client.stdio_transport import StdioTransport
 from servers.cloudops.db import DB_PATH as CLOUDOPS_DB_PATH
 from servers.cloudops.seed import seed as seed_cloudops_db
 
@@ -50,14 +53,13 @@ def connect_filesystem_server(logger: InteractionLogger) -> MCPClient | None:
     """
     WORKSPACE_DIR.mkdir(exist_ok=True)
     try:
-        mcp_client = MCPClient(
-            ["npx", "-y", "@modelcontextprotocol/server-filesystem", str(WORKSPACE_DIR)],
-            server_name="filesystem",
-            logger=logger,
+        transport = StdioTransport(
+            ["npx", "-y", "@modelcontextprotocol/server-filesystem", str(WORKSPACE_DIR)]
         )
+        mcp_client = MCPClient(transport, server_name="filesystem", logger=logger)
         mcp_client.initialize()
         return mcp_client
-    except (StdioTransportError, MCPProtocolError) as exc:
+    except (TransportError, MCPProtocolError) as exc:
         print(f"Warning: could not connect to the Filesystem MCP server: {exc}")
         return None
 
@@ -78,36 +80,38 @@ def connect_git_server(logger: InteractionLogger) -> MCPClient | None:
             return None
 
     try:
-        mcp_client = MCPClient(
-            ["mcp-server-git", "--repository", str(WORKSPACE_DIR)],
-            server_name="git",
-            logger=logger,
-        )
+        transport = StdioTransport(["mcp-server-git", "--repository", str(WORKSPACE_DIR)])
+        mcp_client = MCPClient(transport, server_name="git", logger=logger)
         mcp_client.initialize()
         return mcp_client
-    except (StdioTransportError, MCPProtocolError) as exc:
+    except (TransportError, MCPProtocolError) as exc:
         print(f"Warning: could not connect to the Git MCP server: {exc}")
         return None
 
 
 def connect_cloudops_server(logger: InteractionLogger) -> MCPClient | None:
-    """Seed the CloudOps database on first run, then launch and handshake
-    with our own MCP server — same MCPClient, same logging wrapper, same
-    tool-use loop as the two official servers above; only the launch
-    command differs (our own Python module instead of npx/mcp-server-git).
+    """Launch and handshake with the CloudOps MCP server — same MCPClient,
+    same logging wrapper, same tool-use loop regardless of transport.
+
+    Parte 2: if `CLOUDOPS_REMOTE_URL` is set, talks HTTP(S) to the server
+    deployed on Render instead of spawning it as a local subprocess — the
+    chatbot uses the remote server exactly as it uses the local one, per the
+    assignment's requirement. `CLOUDOPS_TOKEN`, if set, is sent as the
+    `X-CloudOps-Token` header the remote server checks.
     """
-    if not CLOUDOPS_DB_PATH.exists():
-        seed_cloudops_db()
+    remote_url = os.environ.get("CLOUDOPS_REMOTE_URL")
+    if remote_url:
+        transport = HttpTransport(remote_url, token=os.environ.get("CLOUDOPS_TOKEN"))
+    else:
+        if not CLOUDOPS_DB_PATH.exists():
+            seed_cloudops_db()
+        transport = StdioTransport([sys.executable, "-m", "servers.cloudops.server"])
 
     try:
-        mcp_client = MCPClient(
-            [sys.executable, "-m", "servers.cloudops.server"],
-            server_name="cloudops",
-            logger=logger,
-        )
+        mcp_client = MCPClient(transport, server_name="cloudops", logger=logger)
         mcp_client.initialize()
         return mcp_client
-    except (StdioTransportError, MCPProtocolError) as exc:
+    except (TransportError, MCPProtocolError) as exc:
         print(f"Warning: could not connect to the CloudOps MCP server: {exc}")
         return None
 
@@ -137,7 +141,9 @@ def main() -> None:
     cloudops_client = connect_cloudops_server(interaction_logger)
     if cloudops_client is not None:
         mcp_clients["cloudops"] = cloudops_client
-        print(f"Connected: CloudOps MCP server (db: {CLOUDOPS_DB_PATH})")
+        remote_url = os.environ.get("CLOUDOPS_REMOTE_URL")
+        target = remote_url if remote_url else f"db: {CLOUDOPS_DB_PATH}"
+        print(f"Connected: CloudOps MCP server ({target})")
 
     session = ChatSession(client, mcp_clients=mcp_clients)
     print("CloudOps chatbot — type 'exit' to quit, '/log' (or '/log <server>') to show MCP interaction log.\n")
